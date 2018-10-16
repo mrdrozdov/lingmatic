@@ -147,18 +147,26 @@ class ParseTree(object):
         pass
 
     @staticmethod
-    def from_parse(obj, deserializer_cls=ParseTreeDeserializeBase):
-        pt = ParseTree()
+    def from_parse(obj, deserializer_cls_lst=[ParseTreeDeserializeBase]):
+        if not isinstance(deserializer_cls_lst, (list, tuple)):
+            deserializer_cls_lst = [deserializer_cls_lst]
 
-        obj_reader = deserializer_cls(obj)
-        pt.example_id = obj_reader.get_id()
-        pt.parse = obj_reader.get_parse()
-        pt.binary_parse_spans = obj_reader.get_binary_parse_spans()
-        pt.binary_parse_tree = obj_reader.get_binary_parse_tree()
-        pt.raw_binary_parse = obj_reader.get_raw_binary_parse()
-        pt.tokens = obj_reader.get_tokens()
+        pts = []
 
-        return pt
+        for deserializer_cls in deserializer_cls_lst:
+            pt = ParseTree()
+
+            obj_reader = deserializer_cls(obj)
+            pt.example_id = obj_reader.get_id()
+            pt.parse = obj_reader.get_parse()
+            pt.binary_parse_spans = obj_reader.get_binary_parse_spans()
+            pt.binary_parse_tree = obj_reader.get_binary_parse_tree()
+            pt.raw_binary_parse = obj_reader.get_raw_binary_parse()
+            pt.tokens = obj_reader.get_tokens()
+
+            pts.append(pt)
+
+        return pts
 
 
 class ParseTreeReader(object):
@@ -169,8 +177,11 @@ class ParseTreeReader(object):
     def read(self, filename):
         with open(filename) as f:
             for i, line in enumerate(f):
-                pt = ParseTree.from_parse(line, **self.parse_tree_config)
-                yield pt
+                pts = ParseTree.from_parse(line, **self.parse_tree_config)
+                if not isinstance(pts, (list, tuple)):
+                    pts = [pts]
+                for pt in pts:
+                    yield pt
 
                 if self.limit is not None and i+1 >= self.limit:
                     break
@@ -180,13 +191,13 @@ if __name__ == '__main__':
     from tqdm import tqdm
 
     gt_path = os.path.expanduser('~/Downloads/ptb.jsonl')
-    reader = ParseTreeReader(limit=10, parse_tree_config=dict(deserializer_cls=ParseTreeDeserializeGroundTruth))
+    reader = ParseTreeReader(limit=10, parse_tree_config=dict(deserializer_cls_lst=ParseTreeDeserializeGroundTruth))
     results = list(tqdm(reader.read(gt_path)))
 
     print(results[0].parse)
 
     infer_path = os.path.expanduser('~/Downloads/PRPN_parses/PRPNLM_ALLNLI/parsed_WSJ_PRPNLM_AllLI_ESLM.jsonl')
-    reader = ParseTreeReader(limit=10, parse_tree_config=dict(deserializer_cls=ParseTreeDeserializeInfer))
+    reader = ParseTreeReader(limit=10, parse_tree_config=dict(deserializer_cls_lst=ParseTreeDeserializeInfer))
     results = list(tqdm(reader.read(infer_path)))
 
     print(results[0].binary_parse_tree)

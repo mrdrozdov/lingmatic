@@ -232,12 +232,12 @@ if __name__ == '__main__':
     limit = options.limit
 
     gt_path = options.gt
-    reader = ParseTreeReader(limit=limit, parse_tree_config=dict(deserializer_cls=DeserializeGT))
+    reader = ParseTreeReader(limit=limit, parse_tree_config=dict(deserializer_cls_lst=DeserializeGT))
     results = list(tqdm(reader.read(gt_path)))
     corpus_gt = {x.example_id: x for x in results}
 
     infer_path = options.pred
-    reader = ParseTreeReader(limit=limit, parse_tree_config=dict(deserializer_cls=DeserializePred))
+    reader = ParseTreeReader(limit=limit, parse_tree_config=dict(deserializer_cls_lst=DeserializePred))
     results = list(tqdm(reader.read(infer_path)))
     corpus_pred = {x.example_id: x for x in results}
 
