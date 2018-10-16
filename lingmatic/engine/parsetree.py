@@ -71,6 +71,15 @@ class ParseTreeDeserializeBase(object):
             obj = json.loads(obj)
         self.obj = obj
 
+    def get_id(self):
+        r"""
+
+        Returns:
+            output (str): The example id.
+
+        """
+        return self.obj[self.key_id]
+
     def get_parse(self):
         r"""
 
@@ -133,6 +142,7 @@ class ParseTree(object):
         pt = ParseTree()
 
         obj_reader = deserializer_cls(obj)
+        pt.example_id = obj_reader.get_id()
         pt.parse = obj_reader.get_parse()
         pt.binary_parse_spans = obj_reader.get_binary_parse_spans()
         pt.binary_parse_tree = obj_reader.get_binary_parse_tree()
