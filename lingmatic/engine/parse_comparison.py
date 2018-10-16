@@ -201,6 +201,7 @@ if __name__ == '__main__':
     parser.add_argument('--gt', default=os.path.expanduser('~/Downloads/ptb.jsonl'), type=str)
     parser.add_argument('--pred', default=os.path.expanduser('~/Downloads/PRPN_parses/PRPNLM_ALLNLI/parsed_WSJ_PRPNLM_AllLI_ESLM.jsonl'), type=str)
     parser.add_argument('--postprocess', action='store_true')
+    parser.add_argument('--data_type', default='ptb', choices=('ptb', 'nli'))
     options = parser.parse_args()
 
 
@@ -229,15 +230,45 @@ if __name__ == '__main__':
             return None
 
 
+    class DesGT_NLI_1(DeserializeGT):
+        def get_id(self):
+            return self.obj[self.key_id] + '_1'
+
+    class DesGT_NLI_2(DesGT_NLI_1):
+        key_parse = 'sentence2_parse'
+        key_binary_parse = 'sentence2_binary_parse'
+
+        def get_id(self):
+            return self.obj[self.key_id] + '_2'
+
+    class DesPred_NLI_1(DeserializePred):
+        def get_id(self):
+            return self.obj[self.key_id] + '_1'
+
+    class DesPred_NLI_2(DesPred_NLI_1):
+        key_binary_parse = 'sent2_tree'
+
+        def get_id(self):
+            return self.obj[self.key_id] + '_2'
+
+
+    if options.data_type == 'ptb':
+        gt_deserializer_cls_lst = DeserializeGT
+        pred_deserializer_cls_lst = DeserializePred
+    elif options.data_type == 'nli':
+        gt_deserializer_cls_lst = [DesGT_NLI_1, DesGT_NLI_2]
+        pred_deserializer_cls_lst = [DesPred_NLI_1, DesPred_NLI_2]
+
+
     limit = options.limit
 
     gt_path = options.gt
-    reader = ParseTreeReader(limit=limit, parse_tree_config=dict(deserializer_cls_lst=DeserializeGT))
+    reader = ParseTreeReader(limit=limit, parse_tree_config=dict(deserializer_cls_lst=gt_deserializer_cls_lst))
     results = list(tqdm(reader.read(gt_path)))
     corpus_gt = {x.example_id: x for x in results}
 
     infer_path = options.pred
-    reader = ParseTreeReader(limit=limit, parse_tree_config=dict(deserializer_cls_lst=DeserializePred))
+    reader = ParseTreeReader(limit=limit, parse_tree_config=dict(deserializer_cls_lst=pred_deserializer_cls_lst))
     results = list(tqdm(reader.read(infer_path)))
     corpus_pred = {x.example_id: x for x in results}
 
