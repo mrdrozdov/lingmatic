@@ -111,6 +111,15 @@ class ParseTreeDeserializeBase(object):
         tree = build_tree(tokens, transitions)
         return tree
 
+    def get_raw_binary_parse(self):
+        r"""
+
+        Returns:
+            output (str): The string for the binary parse.
+
+        """
+        return self.obj[self.key_binary_parse]
+
     def get_tokens(self):
         r"""
 
@@ -146,6 +155,7 @@ class ParseTree(object):
         pt.parse = obj_reader.get_parse()
         pt.binary_parse_spans = obj_reader.get_binary_parse_spans()
         pt.binary_parse_tree = obj_reader.get_binary_parse_tree()
+        pt.raw_binary_parse = obj_reader.get_raw_binary_parse()
         pt.tokens = obj_reader.get_tokens()
 
         return pt
