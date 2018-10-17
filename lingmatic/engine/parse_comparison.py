@@ -1,6 +1,17 @@
 import os
+import json
+
 
 punctuation_words = set(['.', ',', ':', '-LRB-', '-RRB-', '\'\'', '``', '--', ';', '-', '?', '!', '...', '-LCB-', '-RCB-'])
+
+
+def tree_to_string(parse):
+    if not isinstance(parse, (list, tuple)):
+        return parse
+    if len(parse) == 1:
+        return parse[0]
+    else:
+        return '( ' + tree_to_string(parse[0]) + ' ' + tree_to_string(parse[1]) + ' )'
 
 
 def average_depth(parse):
@@ -28,13 +39,16 @@ class AverageDepth(object):
         self.score = 0
 
     def compare(self, gt, pred):
-        self.score += average_depth(pred.raw_binary_parse)
+        parse = pred.raw_binary_parse
+        if parse is None:
+            parse = tree_to_string(pred.binary_parse_tree)  # This is necessary when post-processing.
+        self.score += average_depth(parse)
 
     def finish(self, count):
         self.score /= count
 
     def print(self):
-        return '{} {:.3f}'.format(self.name, self.score)
+        return '{} {:.1f}'.format(self.name, self.score)
 
 
 class CompareF1(object):
@@ -125,7 +139,9 @@ class ParseComparison(object):
     def __init__(self, comparisons=[CompareF1(), AverageDepth()], count_missing=False, postprocess=False):
         self.stats = {}
         self.stats['count'] = 0
-        self.stats['skipped'] = 0
+        self.stats['missing'] = 0
+        self.stats['skipped-key'] = 0
+        self.stats['skipped-len'] = 0
         self.comparisons = comparisons
         self.count_missing = count_missing
         self.postprocess = postprocess
@@ -137,7 +153,7 @@ class ParseComparison(object):
             gt = corpus_gt[key]
         else:
             skip = True
-            self.stats['skipped'] += 1
+            self.stats['skipped-key'] += 1
         return gt, pred, skip
 
     def preprocess(self, gt, pred):
@@ -150,7 +166,7 @@ class ParseComparison(object):
 
     def run(self, corpus_gt, corpus_pred):
         seen = set()
-        for key in tqdm(corpus_pred.keys()):
+        for key in corpus_pred.keys():
 
             seen.add(key)
 
@@ -174,9 +190,12 @@ class ParseComparison(object):
                 if key in seen:
                     continue
                 gt = corpus_gt[key]
+                if len(gt.tokens) > 2:
+                    self.stats['skipped-len'] += 1
                 for judge in self.comparisons:
                     judge.compare(gt, gt)
                 self.stats['count'] += 1
+                self.stats['missing'] += 1
 
         for judge in self.comparisons:
             judge.finish(self.stats['count'])
@@ -193,8 +212,6 @@ if __name__ == '__main__':
     from lingmatic.engine.parsetree import ParseTreeDeserializeGroundTruth
     from lingmatic.engine.parsetree import ParseTreeDeserializeInfer
 
-    from tqdm import tqdm
-
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--limit', default=None, type=int)
@@ -204,6 +221,7 @@ if __name__ == '__main__':
     parser.add_argument('--data_type', default='ptb', choices=('ptb', 'nli'))
     options = parser.parse_args()
 
+    print(json.dumps(options.__dict__, sort_keys=True, indent=4))
 
     class DeserializeGT(ParseTreeDeserializeGroundTruth):
         def get_parse(self):
@@ -212,13 +230,16 @@ if __name__ == '__main__':
         def get_binary_parse_tree(self):
             return None
 
-        def get_tokens(self):
-            return None
-
 
     class DeserializePred(ParseTreeDeserializeInfer):
         def get_parse(self):
             return None
+
+        def get_raw_binary_parse(self):
+            if options.postprocess:
+                return None
+            else:
+                return super(DeserializePred, self).get_raw_binary_parse()
 
         def get_binary_parse_tree(self):
             if options.postprocess:
@@ -231,6 +252,11 @@ if __name__ == '__main__':
 
 
     class DesGT_NLI_1(DeserializeGT):
+        LABEL_MAP = {'entailment': 0, 'neutral': 1, 'contradiction': 2}
+
+        def should_skip(self):
+            return self.obj['gold_label'] not in self.LABEL_MAP
+
         def get_id(self):
             return self.obj[self.key_id] + '_1'
 
@@ -264,15 +290,15 @@ if __name__ == '__main__':
 
     gt_path = options.gt
     reader = ParseTreeReader(limit=limit, parse_tree_config=dict(deserializer_cls_lst=gt_deserializer_cls_lst))
-    results = list(tqdm(reader.read(gt_path)))
+    results = list(reader.read(gt_path))
     corpus_gt = {x.example_id: x for x in results}
 
     infer_path = options.pred
     reader = ParseTreeReader(limit=limit, parse_tree_config=dict(deserializer_cls_lst=pred_deserializer_cls_lst))
-    results = list(tqdm(reader.read(infer_path)))
+    results = list(reader.read(infer_path))
     corpus_pred = {x.example_id: x for x in results}
 
     # Corpus Stats
     ParseComparison(count_missing=True, postprocess=options.postprocess).run(corpus_gt, corpus_pred)
-    print('Count (Ground Truth): {}'.format(len(corpus_gt)))
-    print('Count (Predictions): {}'.format(len(corpus_pred)))
+    # print('Count (Ground Truth): {}'.format(len(corpus_gt)))
+    # print('Count (Predictions): {}'.format(len(corpus_pred)))

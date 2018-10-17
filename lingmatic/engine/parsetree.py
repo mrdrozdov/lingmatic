@@ -50,7 +50,7 @@ def convert_binary_bracketing(parse):
     transitions = []
     tokens = []
 
-    for word in parse.split():
+    for word in parse.split(' '):
         if word[0] != "(":
             if word == ")":
                 transitions.append(1)
@@ -71,6 +71,15 @@ class ParseTreeDeserializeBase(object):
             obj = json.loads(obj)
         self.obj = obj
 
+    def should_skip(self):
+        r"""
+
+        Returns:
+            output (bool): True if should skip, otherwise False.
+
+        """
+        return False
+
     def get_id(self):
         r"""
 
@@ -78,7 +87,7 @@ class ParseTreeDeserializeBase(object):
             output (str): The example id.
 
         """
-        return self.obj[self.key_id]
+        return self.obj[self.key_id].strip()
 
     def get_parse(self):
         r"""
@@ -89,7 +98,7 @@ class ParseTreeDeserializeBase(object):
         """
         if self.key_parse is None:
             return None
-        return Tree.fromstring(self.obj[self.key_parse])
+        return Tree.fromstring(self.obj[self.key_parse].strip())
 
     def get_binary_parse_spans(self):
         r"""
@@ -98,7 +107,7 @@ class ParseTreeDeserializeBase(object):
             output (set): A set of spans representing the binary tree.
 
         """
-        return to_indexed_contituents(self.obj[self.key_binary_parse])
+        return to_indexed_contituents(self.obj[self.key_binary_parse].strip())
 
     def get_binary_parse_tree(self):
         r"""
@@ -107,7 +116,7 @@ class ParseTreeDeserializeBase(object):
             output (list): A nested list representation of the binary tree.
 
         """
-        tokens, transitions = convert_binary_bracketing(self.obj[self.key_binary_parse])
+        tokens, transitions = convert_binary_bracketing(self.obj[self.key_binary_parse].strip())
         tree = build_tree(tokens, transitions)
         return tree
 
@@ -118,7 +127,7 @@ class ParseTreeDeserializeBase(object):
             output (str): The string for the binary parse.
 
         """
-        return self.obj[self.key_binary_parse]
+        return self.obj[self.key_binary_parse].strip()
 
     def get_tokens(self):
         r"""
@@ -127,7 +136,7 @@ class ParseTreeDeserializeBase(object):
             output (list): The list of tokens in the sentence.
 
         """
-        return to_tokens(self.obj[self.key_binary_parse])
+        return to_tokens(self.obj[self.key_binary_parse].strip())
 
 
 class ParseTreeDeserializeGroundTruth(ParseTreeDeserializeBase):
@@ -157,6 +166,10 @@ class ParseTree(object):
             pt = ParseTree()
 
             obj_reader = deserializer_cls(obj)
+
+            if obj_reader.should_skip():
+                continue
+
             pt.example_id = obj_reader.get_id()
             pt.parse = obj_reader.get_parse()
             pt.binary_parse_spans = obj_reader.get_binary_parse_spans()
