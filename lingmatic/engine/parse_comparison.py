@@ -192,6 +192,8 @@ class ParseComparison(object):
                 gt = corpus_gt[key]
                 if len(gt.tokens) > 2:
                     self.stats['skipped-len'] += 1
+                    # print(gt.example_id)
+                    continue
                 for judge in self.comparisons:
                     judge.compare(gt, gt)
                 self.stats['count'] += 1
