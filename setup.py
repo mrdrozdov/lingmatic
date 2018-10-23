@@ -12,6 +12,7 @@ requires = [
     'bcrypt',
     'docutils',
     'plaster_pastedeploy',
+    'PyMySQL',
     'pyramid >= 1.9a',
     'pyramid_debugtoolbar',
     'pyramid_jinja2',
