@@ -1,6 +1,8 @@
 import os
 import json
 
+from collections import OrderedDict
+
 
 punctuation_words = set(['.', ',', ':', '-LRB-', '-RRB-', '\'\'', '``', '--', ';', '-', '?', '!', '...', '-LCB-', '-RCB-'])
 
@@ -137,17 +139,19 @@ def heuristic(pt):
 
 class ParseComparison(object):
     def __init__(self, comparisons=[CompareF1(), AverageDepth()], count_missing=False, postprocess=False):
-        self.stats = {}
+        self.stats = OrderedDict()
         self.stats['count'] = 0
         self.stats['missing'] = 0
         self.stats['skipped-key'] = 0
         self.stats['skipped-len'] = 0
+        self.stats['skipped-guide'] = 0
         self.comparisons = comparisons
         self.count_missing = count_missing
         self.postprocess = postprocess
 
-    def should_run(self, corpus_gt, corpus_pred, key):
+    def should_run(self, corpus_gt, corpus_pred, corpus_guide, key):
         gt, pred, skip = None, None, False
+
         if key in corpus_gt:
             pred = corpus_pred[key]
             gt = corpus_gt[key]
@@ -164,13 +168,13 @@ class ParseComparison(object):
 
         return gt, pred, skip
 
-    def run(self, corpus_gt, corpus_pred):
+    def run(self, corpus_gt, corpus_pred, corpus_guide=None):
         seen = set()
         for key in corpus_pred.keys():
 
             seen.add(key)
 
-            gt, pred, skip = self.should_run(corpus_gt, corpus_pred, key)
+            gt, pred, skip = self.should_run(corpus_gt, corpus_pred, corpus_guide, key)
 
             if skip:
                 continue
@@ -190,12 +194,13 @@ class ParseComparison(object):
                 if key in seen:
                     continue
                 gt = corpus_gt[key]
+                pred = gt
                 if len(gt.tokens) > 2:
                     self.stats['skipped-len'] += 1
-                    # print(gt.example_id)
+                    # print(gt.example_id, len(gt.tokens))
                     continue
                 for judge in self.comparisons:
-                    judge.compare(gt, gt)
+                    judge.compare(gt, pred)
                 self.stats['count'] += 1
                 self.stats['missing'] += 1
 
@@ -219,6 +224,8 @@ if __name__ == '__main__':
     parser.add_argument('--limit', default=None, type=int)
     parser.add_argument('--gt', default=os.path.expanduser('~/Downloads/ptb.jsonl'), type=str)
     parser.add_argument('--pred', default=os.path.expanduser('~/Downloads/PRPN_parses/PRPNLM_ALLNLI/parsed_WSJ_PRPNLM_AllLI_ESLM.jsonl'), type=str)
+    parser.add_argument('--guide', default=None, type=str)
+    parser.add_argument('--guide_type', default='pred', choices=('gt', 'pred'))
     parser.add_argument('--postprocess', action='store_true')
     parser.add_argument('--data_type', default='ptb', choices=('ptb', 'nli'))
     options = parser.parse_args()
@@ -300,7 +307,15 @@ if __name__ == '__main__':
     results = list(reader.read(infer_path))
     corpus_pred = {x.example_id: x for x in results}
 
+    corpus_guide = None
+    if options.guide is not None:
+        guide_path = options.guide
+        deserializer_cls_lst = pred_deserializer_cls_lst if options.guide_type == 'pred' else gt_deserializer_cls_lst
+        reader = ParseTreeReader(limit=limit, parse_tree_config=dict(deserializer_cls_lst=deserializer_cls_lst))
+        results = list(reader.read(guide_path))
+        corpus_guide = {x.example_id: x for x in results}
+
     # Corpus Stats
-    ParseComparison(count_missing=True, postprocess=options.postprocess).run(corpus_gt, corpus_pred)
-    # print('Count (Ground Truth): {}'.format(len(corpus_gt)))
-    # print('Count (Predictions): {}'.format(len(corpus_pred)))
+    ParseComparison(count_missing=True, postprocess=options.postprocess).run(corpus_gt, corpus_pred, corpus_guide)
+    print('Count (Ground Truth): {}'.format(len(corpus_gt)))
+    print('Count (Predictions): {}'.format(len(corpus_pred)))
