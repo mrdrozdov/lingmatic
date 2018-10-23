@@ -1,0 +1,13 @@
+{% extends 'layout.jinja2' %}
+
+{% block content %}
+
+<ul>
+{% for src in sources %}
+<li>
+    <a href="{{ request.route_url('view_trees', source=src) }}">{{src}}</a>
+</li>
+{% endfor %}
+</ul>
+
+{% endblock content %}

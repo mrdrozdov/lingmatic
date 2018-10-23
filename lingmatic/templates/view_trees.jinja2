@@ -1,0 +1,13 @@
+{% extends 'layout.jinja2' %}
+
+{% block content %}
+
+<ul>
+{% for tr in trees %}
+<li>
+    <a href="{{ request.route_url('view_tree', source=tr.source, rawid=tr.rawid) }}">{{tr.rawid}}</a>
+</li>
+{% endfor %}
+</ul>
+
+{% endblock content %}
