@@ -1,7 +1,7 @@
 import bcrypt
 from sqlalchemy import Column
 from sqlalchemy import Integer
-from sqlalchemy import Text
+from sqlalchemy import String
 
 from .meta import Base
 
@@ -9,11 +9,11 @@ from .meta import Base
 class User(Base):
     """ The SQLAlchemy declarative model class for a User object. """
     __tablename__ = 'users'
-    id = Column(Integer, primary_key=True)
-    name = Column(Text, nullable=False, unique=True)
-    role = Column(Text, nullable=False)
+    id = Column(Integer(), primary_key=True)
+    name = Column(String(256), nullable=False, unique=True)
+    role = Column(String(256), nullable=False)
 
-    password_hash = Column(Text)
+    password_hash = Column(String(256))
 
     def set_password(self, pw):
         pwhash = bcrypt.hashpw(pw.encode('utf8'), bcrypt.gensalt())
