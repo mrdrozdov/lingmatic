@@ -98,14 +98,14 @@ if __name__ == '__main__':
     limit = 10000
 
     gt_path = os.path.expanduser('~/Downloads/ptb.jsonl')
-    reader = ParseTreeReader(limit=limit, parse_tree_config=dict(deserializer_cls=ParseTreeDeserializeGroundTruth))
+    reader = ParseTreeReader(limit=limit, parse_tree_config=dict(deserializer_cls_lst=ParseTreeDeserializeGroundTruth))
     results = list(tqdm(reader.read(gt_path)))
     corpus_gt = {x.example_id: x for x in results}
 
     print(results[0].parse)
 
     infer_path = os.path.expanduser('~/Downloads/PRPN_parses/PRPNLM_ALLNLI/parsed_WSJ_PRPNLM_AllLI_ESLM.jsonl')
-    reader = ParseTreeReader(limit=limit, parse_tree_config=dict(deserializer_cls=ParseTreeDeserializeInfer))
+    reader = ParseTreeReader(limit=limit, parse_tree_config=dict(deserializer_cls_lst=ParseTreeDeserializeInfer))
     results = list(tqdm(reader.read(infer_path)))
     corpus_pred = {x.example_id: x for x in results}
 
