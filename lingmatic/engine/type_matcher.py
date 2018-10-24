@@ -3,10 +3,28 @@ import json
 
 from collections import Counter
 
+import numpy as np
+
+from lingmatic.engine.parse_comparison import heuristic
+
 
 class SimpleSkipCriteria(object):
     def should_skip(self, corpus_gt, corpus_pred, key):
         return key not in corpus_gt
+
+
+class ParseTreeHandler(object):
+    def __init__(self, postprocess=False):
+        self.postprocess = postprocess
+
+    def get(self, corpus_gt, corpus_pred, key):
+        gt = corpus_gt[key]
+        pred = corpus_pred[key]
+
+        if self.postprocess:
+            pred.binary_parse_spans, pred.binary_parse_tree = heuristic(pred)
+
+        return gt, pred
 
 
 class TopDownS2LConverter(object):
@@ -72,6 +90,72 @@ class PhraseCounter(object):
             ntotal = self.total[label]
             print('{:<6} {:<8} {:<8} {:<8.3f}'.format(label, ncorrect, ntotal, float(ncorrect)/float(ntotal)))
         print('Total', sum(self.total.values()))
+        print
+
+
+class PhraseLengthCounter(object):
+    def reset(self):
+        self.correct = {}
+        self.total = {}
+
+    def count(self, gt, pred, span2label):
+        for span in gt.binary_parse_spans:
+            length = span[1] - span[0]
+            if length == 1:
+                continue
+            if span not in span2label:
+                continue
+            label = span2label[span]
+            if span in pred.binary_parse_spans:
+                self.correct.setdefault(label, Counter())[length] += 1
+            self.total.setdefault(label, Counter())[length] += 1
+
+    def print(self):
+        labels = sorted(self.total.keys())
+        lengths = set()
+
+        for v in self.total.values():
+            for k in v.keys():
+                lengths.add(k)
+
+        ncorrect = np.zeros((len(labels), len(lengths)))
+        ntotal = np.zeros((len(labels), len(lengths)))
+
+        for i, label in enumerate(sorted(labels)):
+            for j, length in enumerate(sorted(lengths)):
+                self.correct.setdefault(label, Counter())[length] += 0
+                ncorrect[i, j] = self.correct[label][length]
+                ntotal[i, j] = self.total[label][length]
+
+        # Print
+        line = ' ' * 12
+        line += ' ' * 5
+        for i, length in enumerate(sorted(lengths)):
+            line += ' {:7}'.format(length)
+        print(line)
+
+        for i, label in enumerate(sorted(labels)):
+            line = '{:12}'.format(label)
+            line += '{:.3f}'.format(ncorrect[i].sum() / ntotal[i].sum())
+            for j, length in enumerate(sorted(lengths)):
+                ncorrect[i, j] = self.correct[label][length]
+                ntotal[i, j] = self.total[label][length]
+                line += ' {:7}'.format(int(ncorrect[i, j]))
+            print(line)
+            line = ' ' * 12
+            line += ' ' * 5
+            for j, length in enumerate(sorted(lengths)):
+                ncorrect[i, j] = self.correct[label][length]
+                ntotal[i, j] = self.total[label][length]
+                line += ' {:7}'.format(int(ntotal[i, j]))
+            print(line)
+        print
+
+        for i, label in enumerate(sorted(labels)):
+            ncsum, ntsum = int(ncorrect[i].sum()), int(ntotal[i].sum())
+            recall = ncsum / float(ntsum)
+            line = '{:12} {:7} {:7} {:.3f}'.format(label, ncsum, ntsum, recall)
+            print(line)
         print
 
 
@@ -143,9 +227,11 @@ class AttachmentCounter(object):
 
 
 class MatchEntities(object):
-    def __init__(self, skip_criteria=None, s2l_converter=None, phrase_counter_lst=None):
+    def __init__(self, skip_criteria=None, parsetree_handler=None, s2l_converter=None, phrase_counter_lst=None):
         if skip_criteria is None:
             skip_criteria = SimpleSkipCriteria()
+        if parsetree_handler is None:
+            parsetree_handler = ParseTreeHandler()
         if s2l_converter is None:
             s2l_converter = TopDownS2LConverter()
         if phrase_counter_lst is None:
@@ -154,6 +240,7 @@ class MatchEntities(object):
             phrase_counter_lst = [phrase_counter_lst]
 
         self.skip_criteria = skip_criteria
+        self.parsetree_handler = parsetree_handler
         self.s2l_converter = s2l_converter
         self.phrase_counter_lst = phrase_counter_lst
 
@@ -176,6 +263,8 @@ class MatchEntities(object):
 
             pred = corpus_pred[key]
             gt = corpus_gt[key]
+
+            gt, pred = self.parsetree_handler.get(corpus_gt=corpus_gt, corpus_pred=corpus_pred, key=key)
             span2label = self.s2l_converter.convert(gt, pred)
 
             for counter in self.phrase_counter_lst:
@@ -198,8 +287,10 @@ if __name__ == '__main__':
     parser.add_argument('--pred', default=os.path.expanduser('~/Downloads/PRPN_parses/PRPNLM_ALLNLI/parsed_WSJ_PRPNLM_AllLI_ESLM.jsonl'), type=str)
     parser.add_argument('--gt_type', default='gt', choices=('gt'))
     parser.add_argument('--pred_type', default='infer', choices=('gt', 'infer'))
+    parser.add_argument('--track_length', action='store_true')
     parser.add_argument('--track_attachment', action='store_true')
     parser.add_argument('--skip_one', action='store_true')
+    parser.add_argument('--postprocess', action='store_true')
     options = parser.parse_args()
 
     print(json.dumps(options.__dict__, indent=4, sort_keys=True))
@@ -225,10 +316,15 @@ if __name__ == '__main__':
 
     # Match Entities
     phrase_counter_lst = [PhraseCounter()]
+    if options.track_length:
+        phrase_counter_lst.append(PhraseLengthCounter())
     if options.track_attachment:
         phrase_counter_lst.append(AttachmentCounter())
 
-    matcher = MatchEntities(s2l_converter=TopDownS2LConverter(skip_one=options.skip_one), phrase_counter_lst=phrase_counter_lst)
+    matcher = MatchEntities(
+        s2l_converter=TopDownS2LConverter(skip_one=options.skip_one),
+        parsetree_handler=ParseTreeHandler(postprocess=options.postprocess),
+        phrase_counter_lst=phrase_counter_lst)
     matcher.run(corpus_gt, corpus_pred)
     for counter in matcher.phrase_counter_lst:
         counter.print()
