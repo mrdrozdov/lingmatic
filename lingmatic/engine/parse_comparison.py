@@ -138,7 +138,7 @@ def heuristic(pt):
 
 
 class ParseComparison(object):
-    def __init__(self, comparisons=[CompareF1(), AverageDepth()], count_missing=False, postprocess=False):
+    def __init__(self, comparisons=[CompareF1(), AverageDepth()], count_missing=False, postprocess=False, guide_mode='constrain'):
         self.stats = OrderedDict()
         self.stats['count'] = 0
         self.stats['missing'] = 0
@@ -148,16 +148,29 @@ class ParseComparison(object):
         self.comparisons = comparisons
         self.count_missing = count_missing
         self.postprocess = postprocess
+        self.guide_mode = guide_mode
 
     def should_run(self, corpus_gt, corpus_pred, corpus_guide, key):
         gt, pred, skip = None, None, False
 
-        if key in corpus_gt:
-            pred = corpus_pred[key]
-            gt = corpus_gt[key]
-        else:
+        if key not in corpus_gt:
             skip = True
             self.stats['skipped-key'] += 1
+
+        if not skip and corpus_guide is not None:
+            if self.guide_mode == 'constrain':
+                if key not in corpus_guide:
+                    skip = True
+                    self.stats['skipped-guide'] += 1
+            elif self.guide_mode == 'skip':
+                if key in corpus_guide:
+                    skip = True
+                    self.stats['skipped-guide'] += 1
+
+        if not skip:
+            pred = corpus_pred[key]
+            gt = corpus_gt[key]
+
         return gt, pred, skip
 
     def preprocess(self, gt, pred):
@@ -226,6 +239,7 @@ if __name__ == '__main__':
     parser.add_argument('--pred', default=os.path.expanduser('~/Downloads/PRPN_parses/PRPNLM_ALLNLI/parsed_WSJ_PRPNLM_AllLI_ESLM.jsonl'), type=str)
     parser.add_argument('--guide', default=None, type=str)
     parser.add_argument('--guide_type', default='pred', choices=('gt', 'pred'))
+    parser.add_argument('--guide_mode', default='constrain', choices=('constrain', 'skip'))
     parser.add_argument('--postprocess', action='store_true')
     parser.add_argument('--data_type', default='ptb', choices=('ptb', 'nli'))
     options = parser.parse_args()
@@ -316,6 +330,7 @@ if __name__ == '__main__':
         corpus_guide = {x.example_id: x for x in results}
 
     # Corpus Stats
-    ParseComparison(count_missing=True, postprocess=options.postprocess).run(corpus_gt, corpus_pred, corpus_guide)
+    ParseComparison(count_missing=True, postprocess=options.postprocess, guide_mode=options.guide_mode
+        ).run(corpus_gt, corpus_pred, corpus_guide)
     print('Count (Ground Truth): {}'.format(len(corpus_gt)))
     print('Count (Predictions): {}'.format(len(corpus_pred)))
