@@ -56,13 +56,23 @@ class AverageDepth(object):
 class CompareF1(object):
     name = 'f1'
 
-    def __init__(self):
+    def __init__(self, verbose=False):
         self.score = 0
+        self.verbose = verbose
 
     def compare(self, gt, pred):
         gt_spans = gt.binary_parse_spans
         pred_spans = pred.binary_parse_spans
-        self.score += example_f1(pred_spans, gt_spans)
+        f1 = example_f1(pred_spans, gt_spans)
+        self.score += f1
+
+        if self.verbose:
+            if f1 < 1:
+                out = OrderedDict()
+                out['example_id'] = gt.example_id
+                out['length'] = len(gt.tokens)
+                out['f1'] = f1
+                print(json.dumps(out))
 
     def finish(self, count):
         self.score /= count
@@ -138,7 +148,8 @@ def heuristic(pt):
 
 
 class ParseComparison(object):
-    def __init__(self, comparisons=[CompareF1(), AverageDepth()], count_missing=False, postprocess=False, guide_mode='constrain'):
+    def __init__(self, comparisons=[CompareF1(), AverageDepth()], count_missing=False, postprocess=False,
+                 guide_mode='constrain'):
         self.stats = OrderedDict()
         self.stats['count'] = 0
         self.stats['missing'] = 0
@@ -242,6 +253,7 @@ if __name__ == '__main__':
     parser.add_argument('--guide_mode', default='constrain', choices=('constrain', 'skip'))
     parser.add_argument('--postprocess', action='store_true')
     parser.add_argument('--data_type', default='ptb', choices=('ptb', 'nli'))
+    parser.add_argument('--print_diff', action='store_true')
     options = parser.parse_args()
 
     print(json.dumps(options.__dict__, sort_keys=True, indent=4))
@@ -329,8 +341,17 @@ if __name__ == '__main__':
         results = list(reader.read(guide_path))
         corpus_guide = {x.example_id: x for x in results}
 
+    # Comparisons.
+    judge_compare_f1 = CompareF1(verbose=options.print_diff)
+    judge_average_depth = AverageDepth()
+    comparisons = [judge_compare_f1, judge_average_depth]
+
     # Corpus Stats
-    ParseComparison(count_missing=True, postprocess=options.postprocess, guide_mode=options.guide_mode
+    ParseComparison(
+        comparisons=comparisons,
+        count_missing=True,
+        postprocess=options.postprocess,
+        guide_mode=options.guide_mode,
         ).run(corpus_gt, corpus_pred, corpus_guide)
     print('Count (Ground Truth): {}'.format(len(corpus_gt)))
     print('Count (Predictions): {}'.format(len(corpus_pred)))
