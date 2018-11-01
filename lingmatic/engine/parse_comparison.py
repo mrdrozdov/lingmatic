@@ -3,6 +3,8 @@ import json
 
 from collections import OrderedDict
 
+import numpy as np
+
 
 punctuation_words = set(['.', ',', ':', '-LRB-', '-RRB-', '\'\'', '``', '--', ';', '-', '?', '!', '...', '-LCB-', '-RCB-'])
 
@@ -59,6 +61,7 @@ class CompareF1(object):
     def __init__(self, verbose=False):
         self.score = 0
         self.verbose = verbose
+        self.results = []
 
     def compare(self, gt, pred):
         gt_spans = gt.binary_parse_spans
@@ -72,10 +75,19 @@ class CompareF1(object):
                 out['example_id'] = gt.example_id
                 out['length'] = len(gt.tokens)
                 out['f1'] = f1
-                print(json.dumps(out))
+                self.results.append(out)
+                # print(json.dumps(out))
 
     def finish(self, count):
         self.score /= count
+
+        if self.verbose:
+            lengths = {x['length'] for x in self.results}
+            for k in sorted(lengths):
+                f1s = [x['f1'] for x in self.results if x['length'] == k]
+                n = len(f1s)
+                mean_f1 = np.array(f1s).mean()
+                print('{},{:.3f},{}'.format(k, mean_f1, n))
 
     def print(self):
         return '{} {:.3f}'.format(self.name, self.score)
@@ -233,6 +245,7 @@ class ParseComparison(object):
         for judge in self.comparisons:
             print(judge.print())
 
+        print('seen', len(seen))
         print(' '.join(['{}={}'.format(k, v) for k, v in self.stats.items()]))
 
 
@@ -253,7 +266,7 @@ if __name__ == '__main__':
     parser.add_argument('--guide_mode', default='constrain', choices=('constrain', 'skip'))
     parser.add_argument('--postprocess', action='store_true')
     parser.add_argument('--data_type', default='ptb', choices=('ptb', 'nli'))
-    parser.add_argument('--print_diff', action='store_true')
+    parser.add_argument('--verbose', action='store_true')
     options = parser.parse_args()
 
     print(json.dumps(options.__dict__, sort_keys=True, indent=4))
@@ -326,11 +339,13 @@ if __name__ == '__main__':
     gt_path = options.gt
     reader = ParseTreeReader(limit=limit, parse_tree_config=dict(deserializer_cls_lst=gt_deserializer_cls_lst))
     results = list(reader.read(gt_path))
+    print('gt-results', len(results))
     corpus_gt = {x.example_id: x for x in results}
 
     infer_path = options.pred
     reader = ParseTreeReader(limit=limit, parse_tree_config=dict(deserializer_cls_lst=pred_deserializer_cls_lst))
     results = list(reader.read(infer_path))
+    print('pred-results', len(results))
     corpus_pred = {x.example_id: x for x in results}
 
     corpus_guide = None
@@ -342,7 +357,7 @@ if __name__ == '__main__':
         corpus_guide = {x.example_id: x for x in results}
 
     # Comparisons.
-    judge_compare_f1 = CompareF1(verbose=options.print_diff)
+    judge_compare_f1 = CompareF1(verbose=options.verbose)
     judge_average_depth = AverageDepth()
     comparisons = [judge_compare_f1, judge_average_depth]
 
