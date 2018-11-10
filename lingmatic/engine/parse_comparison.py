@@ -8,6 +8,10 @@ WSJ10 (7422 sentences)
 
 WSJ40
 
+python lingmatic/engine/parse_comparison.py --data_type ptb --trivial --strip_punct --max_length 40 --postprocess \
+--gt ~/Downloads/ptb.jsonl \
+--pred /Users/adrozdov/Research/diora/diora_dynet/analysis_fast-400D-lr_002-l_20-model.step-ptb-eval-step_300000.ptb
+
 --max_length 40
 --strip_punct
 --trivial
