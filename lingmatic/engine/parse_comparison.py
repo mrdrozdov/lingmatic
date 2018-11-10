@@ -103,6 +103,9 @@ class AverageDepth(object):
     def __init__(self):
         self.score = 0
 
+    def skip(self, gt, pred):
+        return False
+
     def compare(self, gt, pred):
         parse = pred.raw_binary_parse
         if parse is None:
@@ -116,25 +119,39 @@ class AverageDepth(object):
         return '{} {:.1f}'.format(self.name, self.score)
 
 
-def remove_trivial_spans(spans):
-    length = max(x[1] for x in spans)
+def remove_trivial_spans(spans, length):
+    # Remove span over entire sentence.
     spans.remove((0, length))
+
+    # Remove spans of size 1.
+    lst = list(spans)
+    for s in lst:
+        length = s[1] - s[0]
+        if length == 1:
+            spans.remove(s)
+
     return spans
 
 
 class CompareF1(object):
     name = 'f1'
 
-    def __init__(self, verbose=False, trivial=False):
+    def __init__(self, verbose=False, trivial=False, use_parse=True):
         self.score = 0
+        self.use_parse = use_parse
         self.verbose = verbose
         self.results = []
         self.trivial = trivial
 
+    def skip(self, gt, pred):
+        gt_spans = gt.parse_spans if self.use_parse else gt.binary_parse_spans
+        if len(gt_spans) == 0:
+            return True
+        return False
+
     def compare(self, gt, pred):
-        # gt_spans = gt.binary_parse_spans
-        gt_spans = gt.f1_spans
-        pred_spans = pred.f1_spans
+        gt_spans = gt.parse_spans if self.use_parse else gt.binary_parse_spans
+        pred_spans = pred.binary_parse_spans
         f1 = example_f1(pred_spans, gt_spans)
         self.score += f1
 
@@ -185,15 +202,38 @@ def get_spans(tree):
     def helper(tr, idx=0):
         if isinstance(tr, (str, int)):
             return 1, []
-        left, left_spans = helper(tr[0], idx=idx)
-        right, right_spans = helper(tr[1], idx=idx+left)
-        span = [(idx, idx + left + right)]
-        spans = span + left_spans + right_spans
-        return left + right, spans
+
+        spans = []
+        sofar = idx
+
+        for subtree in tr:
+            size, subspans = helper(subtree, idx=sofar)
+            spans += subspans
+            sofar += size
+
+        size = sofar - idx
+        spans += [(idx, sofar)]
+
+        return size, spans
 
     _, spans = helper(tree)
 
     return spans
+
+
+# def get_spans(tree):
+#     def helper(tr, idx=0):
+#         if isinstance(tr, (str, int)):
+#             return 1, []
+#         left, left_spans = helper(tr[0], idx=idx)
+#         right, right_spans = helper(tr[1], idx=idx+left)
+#         span = [(idx, idx + left + right)]
+#         spans = span + left_spans + right_spans
+#         return left + right, spans
+
+#     _, spans = helper(tree)
+
+#     return spans
 
 
 def should_remove(x, tokens_to_remove=punctuation_words):
@@ -370,8 +410,8 @@ class ParseComparison(object):
         self.stats['skipped-key'] = 0
         self.stats['skipped-len'] = 0
         self.stats['skipped-guide'] = 0
-        self.stats['skipped-1'] = 0
-        self.stats['skipped-2'] = 0
+        self.stats['skipped-short'] = 0
+        self.stats['skipped-long'] = 0
         self.stats['skip-empty-parse'] = 0
         self.comparisons = comparisons
         self.count_missing = count_missing
@@ -408,33 +448,68 @@ class ParseComparison(object):
     def preprocess(self, gt, pred):
         skip = False
 
-        if len(gt.tokens) > 2 and not skip:
-            if self.strip_punct:
-                gt.parse, gt.binary_parse_spans, gt.binary_parse_tree = classic_gt(gt)
+        use_parse = True
 
-        if len(get_tokens(gt.binary_parse_tree)) == 1:
-            self.stats['skipped-1'] += 1
-            skip = True
+        if self.trivial and len(gt.tokens) <= 2:
+            return gt, pred, True
 
-        if self.trivial:
-            if len(get_tokens(gt.binary_parse_tree)) == 2:
-                self.stats['skipped-2'] += 1
-                skip = True
+        if self.strip_punct:
+            mask = tokeep_punct_using_labels(gt.parse)
+
+            # gt
+            gt.parse = remove_using_mask(gt.parse, mask)
+            gt.binary_parse_tree = remove_using_mask(gt.binary_parse_tree, mask)
+            gt.binary_parse_spans = set(get_spans(gt.binary_parse_tree))
+            gt.parse_spans = set(get_spans(gt.parse))
+
+            # pred
+            # TODO: Can skip some of this if the example is being skipped anyway.
+            pred.binary_parse_tree = remove_using_mask(pred.binary_parse_tree, mask)
+            pred.binary_parse_spans = set(get_spans(pred.binary_parse_tree))
+
+        length = len(get_tokens(gt.binary_parse_tree))
 
         if self.max_length is not None:
-            if len(get_tokens(gt.binary_parse_tree)) > self.max_length:
+            if length > self.max_length:
+                self.stats['skipped-long'] += 1
                 skip = True
-            # if len(get_tokens(gt.binary_parse_tree)) == self.max_length + 1:
-            #     print(get_tokens(gt.binary_parse_tree))
 
-        if not skip:
-            if self.rbranch:
-                pred.binary_parse_spans, pred.binary_parse_tree = rb_baseline(get_tokens(gt.binary_parse_tree))
-            elif self.strip_punct:
-                pred.binary_parse_spans, pred.binary_parse_tree = classic(pred)
+        if self.trivial:
+            if length <= 2:
+                self.stats['skipped-short'] += 1
+                skip = True
+            else:
+                gt.parse_spans = remove_trivial_spans(gt.parse_spans, length)
+                gt.binary_parse_spans = remove_trivial_spans(gt.binary_parse_spans, length)
+                pred.binary_parse_spans = remove_trivial_spans(pred.binary_parse_spans, length)
 
-        if self.postprocess:
-            pred.binary_parse_spans, pred.binary_parse_tree = heuristic(pred)
+        # if len(gt.tokens) > 2 and not skip:
+        #     if self.strip_punct:
+        #         gt.parse, gt.binary_parse_spans, gt.binary_parse_tree = classic_gt(gt)
+
+        # if len(get_tokens(gt.binary_parse_tree)) == 1:
+        #     self.stats['skipped-1'] += 1
+        #     skip = True
+
+        # if self.trivial:
+        #     if len(get_tokens(gt.binary_parse_tree)) == 2:
+        #         self.stats['skipped-2'] += 1
+        #         skip = True
+
+        # if self.max_length is not None:
+        #     if len(get_tokens(gt.binary_parse_tree)) > self.max_length:
+        #         skip = True
+        #     # if len(get_tokens(gt.binary_parse_tree)) == self.max_length + 1:
+        #     #     print(get_tokens(gt.binary_parse_tree))
+
+        # if not skip:
+        #     if self.rbranch:
+        #         pred.binary_parse_spans, pred.binary_parse_tree = rb_baseline(get_tokens(gt.binary_parse_tree))
+        #     elif self.strip_punct:
+        #         pred.binary_parse_spans, pred.binary_parse_tree = classic(pred)
+
+        # if self.postprocess:
+        #     pred.binary_parse_spans, pred.binary_parse_tree = heuristic(pred)
 
         return gt, pred, skip
 
@@ -454,14 +529,21 @@ class ParseComparison(object):
             if skip:
                 continue
 
-            gt.f1_spans = tuples_to_spans(gt.parse)[0]
-            pred.f1_spans = pred.binary_parse_spans
-            if self.trivial:
-                gt.f1_spans = remove_trivial_spans(gt.f1_spans)
-                pred.f1_spans = remove_trivial_spans(pred.f1_spans)
+            # gt.f1_spans = tuples_to_spans(gt.parse)[0]
+            # pred.f1_spans = pred.binary_parse_spans
+            # if self.trivial:
+            #     gt.f1_spans = remove_trivial_spans(gt.f1_spans)
+            #     pred.f1_spans = remove_trivial_spans(pred.f1_spans)
 
-            if len(gt.f1_spans) == 0:
-                self.stats['skip-empty-parse'] += 1
+            # if len(gt.f1_spans) == 0:
+            #     self.stats['skip-empty-parse'] += 1
+            #     continue
+
+            for judge in self.comparisons:
+                if judge.skip(gt, pred):
+                    skip = True
+
+            if skip:
                 continue
 
             for judge in self.comparisons:
@@ -633,6 +715,7 @@ if __name__ == '__main__':
     parser.add_argument('--rbranch', action='store_true')
     parser.add_argument('--skip_missing', action='store_true')
     parser.add_argument('--trivial', action='store_true')
+    parser.add_argument('--use_parse', action='store_true')
     parser.add_argument('--strip_punct', action='store_true')
     parser.add_argument('--max_length', default=None, type=int)
     parser.add_argument('--data_type', default='ptb', choices=('ptb', 'nli'))
@@ -728,7 +811,7 @@ if __name__ == '__main__':
         corpus_guide = {x.example_id: x for x in results}
 
     # Comparisons.
-    judge_compare_f1 = CompareF1(verbose=options.verbose, trivial=options.trivial)
+    judge_compare_f1 = CompareF1(verbose=options.verbose, trivial=options.trivial, use_parse=options.use_parse)
     judge_average_depth = AverageDepth()
     comparisons = [judge_compare_f1, judge_average_depth]
 
