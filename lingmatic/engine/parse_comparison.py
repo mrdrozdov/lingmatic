@@ -506,7 +506,7 @@ def remove_punct_using_labels(pt):
         return None
 
     node = (remove_punct_using_labels(subtree) for subtree in pt)
-    node = tuple(x for x in node if x is not None)
+    node = tuple(x for x in node if x is not None and len(x) > 0)
 
     if len(node) == 1:
         node = node[0]
