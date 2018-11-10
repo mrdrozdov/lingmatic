@@ -8,7 +8,7 @@ WSJ10 (7422 sentences)
 
 WSJ40
 
-python lingmatic/engine/parse_comparison.py --data_type ptb --trivial --strip_punct --max_length 40 --postprocess \
+python lingmatic/engine/parse_comparison.py --data_type ptb --trivial --strip_punct --max_length 40 \
 --gt ~/Downloads/ptb.jsonl \
 --pred /Users/adrozdov/Research/diora/diora_dynet/analysis_fast-400D-lr_002-l_20-model.step-ptb-eval-step_300000.ptb
 
@@ -29,11 +29,11 @@ import numpy as np
 
 
 punctuation_words = set(['.', ',', ':', '-LRB-', '-RRB-', '\'\'', '``', '--', ';', '-', '?', '!', '...', '-LCB-', '-RCB-'])
-currency_tags_words = set(['#', '$', 'C$', 'A$'])
+currency_words = set(['#', '$', 'C$', 'A$'])
 ellipsis = set(['*', '*?*', '0', '*T*', '*ICH*', '*U*', '*RNR*', '*EXP*', '*PPA*', '*NOT*'])
 other = set(['HK$', '&', '**'])
 other2 = set(["'", '`'])
-tokens_to_remove = set.union(punctuation_words, currency_tags_words)
+tokens_to_remove = set.union(punctuation_words, currency_words)
 tokens_to_remove = set.union(tokens_to_remove, ellipsis)
 tokens_to_remove = set.union(tokens_to_remove, other)
 # tokens_to_remove = set.union(tokens_to_remove, other2)
