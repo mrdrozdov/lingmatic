@@ -1,5 +1,23 @@
+"""
+WSJ10 (7422 sentences)
+
+--max_length 10
+--strip_punct
+--trivial
+--data ptb
+
+WSJ40
+
+--max_length 40
+--strip_punct
+--trivial
+--data ptb-test
+
+"""
+
 import os
 import json
+from nltk.tree import Tree
 
 from collections import OrderedDict
 
@@ -7,7 +25,15 @@ import numpy as np
 
 
 punctuation_words = set(['.', ',', ':', '-LRB-', '-RRB-', '\'\'', '``', '--', ';', '-', '?', '!', '...', '-LCB-', '-RCB-'])
-
+currency_tags_words = set(['#', '$', 'C$', 'A$'])
+ellipsis = set(['*', '*?*', '0', '*T*', '*ICH*', '*U*', '*RNR*', '*EXP*', '*PPA*', '*NOT*'])
+other = set(['HK$', '&', '**'])
+other2 = set(["'", '`'])
+tokens_to_remove = set.union(punctuation_words, currency_tags_words)
+tokens_to_remove = set.union(tokens_to_remove, ellipsis)
+tokens_to_remove = set.union(tokens_to_remove, other)
+# tokens_to_remove = set.union(tokens_to_remove, other2)
+# %
 
 def tree_to_string(parse):
     if not isinstance(parse, (list, tuple)):
@@ -55,17 +81,25 @@ class AverageDepth(object):
         return '{} {:.1f}'.format(self.name, self.score)
 
 
+def remove_trivial_spans(spans):
+    length = max(x[1] for x in spans)
+    spans.remove((0, length))
+    return spans
+
+
 class CompareF1(object):
     name = 'f1'
 
-    def __init__(self, verbose=False):
+    def __init__(self, verbose=False, trivial=False):
         self.score = 0
         self.verbose = verbose
         self.results = []
+        self.trivial = trivial
 
     def compare(self, gt, pred):
-        gt_spans = gt.binary_parse_spans
-        pred_spans = pred.binary_parse_spans
+        # gt_spans = gt.binary_parse_spans
+        gt_spans = gt.f1_spans
+        pred_spans = pred.f1_spans
         f1 = example_f1(pred_spans, gt_spans)
         self.score += f1
 
@@ -93,6 +127,25 @@ class CompareF1(object):
         return '{} {:.3f}'.format(self.name, self.score)
 
 
+# def get_parse_spans(parse):
+#     stack = [(0, parse)]
+#     spans = set()
+#     while len(stack) > 0:
+#         i, root = stack.pop()
+#         size = len(root.leaves())
+#         span = (i, i + size)
+#         spans.add(span)
+#         sofar = i
+#         for x in root:
+#             if not isinstance(x, str):
+#                 size = len(x.leaves())
+#                 stack.append((sofar, x))
+#             else:
+#                 size = 1
+#             sofar += size
+#     return spans
+
+
 def get_spans(tree):
     def helper(tr, idx=0):
         if isinstance(tr, (str, int)):
@@ -108,12 +161,105 @@ def get_spans(tree):
     return spans
 
 
-def should_remove(x):
+def should_remove(x, tokens_to_remove=punctuation_words):
     if not isinstance(x, str):
         return False
-    if x in punctuation_words:
+    if x in tokens_to_remove:
         return True
     return False
+
+
+def check_tree(tr, val):
+    if not isinstance(tr, (list, tuple)):
+        return tr is val
+    left = check_tree(tr[0], val)
+    right = check_tree(tr[0], val)
+    return left or right
+
+
+def parse_to_tuples(parse):
+    if isinstance(parse, str):
+        return parse
+    result = tuple(parse_to_tuples(x) for x in parse)
+    if len(result) == 1: # unary
+        result = result[0]
+    return result
+
+
+def tuples_to_spans(tuples, i=0):
+    if isinstance(tuples, str):
+        return set(), 1
+    spans = set()
+    sofar = i
+    for x in tuples:
+        subspans, size = tuples_to_spans(x, sofar)
+        spans = set.union(spans, subspans)
+        sofar += size
+    spans.add((i, sofar))
+    return spans, sofar - i
+
+
+def remove_all_punct_parse(parse):
+    def helper(tree):
+        if isinstance(tree, str):
+            return tree
+
+        parts = [helper(x) for x in tree if not should_remove(x, tokens_to_remove=tokens_to_remove)]
+        parts = [x for x in parts if x is not None]
+
+        if len(parts) == 0:
+            return None
+        return tuple(parts)
+
+    result = helper(parse)
+
+    return result
+
+
+def remove_all_punct(tr):
+    def helper(tree):
+        if isinstance(tree, str):
+            return tree
+
+        left = helper(tree[0])
+        right = helper(tree[1])
+
+        left_skip = left is None or should_remove(left, tokens_to_remove=tokens_to_remove)
+        right_skip = right is None or should_remove(right, tokens_to_remove=tokens_to_remove)
+
+        if left_skip and right_skip:
+            return None
+        elif left_skip:
+            return right
+        elif right_skip:
+            return left
+        return (left, right)
+
+    result = helper(tr)
+
+    # print(result)
+
+    assert check_tree(result, None) == False
+
+    return result
+
+
+def get_tokens(tr):
+    if not isinstance(tr, (list, tuple)):
+        return [tr]
+    return get_tokens(tr[0]) + get_tokens(tr[1])
+
+
+# def right_branching(tokens):
+#     if len(tokens) == 2:
+#         return tuple(tokens)
+#     return (right_branching(tokens[:-1]), tokens[-1])
+
+
+def right_branching(tokens):
+    if len(tokens) == 2:
+        return tuple(tokens)
+    return (tokens[0], right_branching(tokens[1:]))
 
 
 def remove_punctuation(tr, last_only=False):
@@ -159,8 +305,28 @@ def heuristic(pt):
     return spans, tr
 
 
+def rb_baseline(tokens):
+    tr = right_branching(tokens)
+    spans = set(get_spans(tr))
+    return spans, tr
+
+
+def classic_gt(pt):
+    tr = remove_all_punct(pt.binary_parse_tree)
+    spans = set(get_spans(tr))
+    parse = remove_all_punct_parse(pt.parse)
+    return parse, spans, tr
+
+
+def classic(pt):
+    tr = remove_all_punct(pt.binary_parse_tree)
+    spans = set(get_spans(tr))
+    return spans, tr
+
+
 class ParseComparison(object):
-    def __init__(self, comparisons=[CompareF1(), AverageDepth()], count_missing=False, postprocess=False,
+    def __init__(self, comparisons=[CompareF1(), AverageDepth()], count_missing=False,
+                 postprocess=False, rbranch=False, trivial=False, max_length=None, strip_punct=False,
                  guide_mode='constrain'):
         self.stats = OrderedDict()
         self.stats['count'] = 0
@@ -168,10 +334,17 @@ class ParseComparison(object):
         self.stats['skipped-key'] = 0
         self.stats['skipped-len'] = 0
         self.stats['skipped-guide'] = 0
+        self.stats['skipped-1'] = 0
+        self.stats['skipped-2'] = 0
+        self.stats['skip-empty-parse'] = 0
         self.comparisons = comparisons
         self.count_missing = count_missing
         self.postprocess = postprocess
+        self.rbranch = rbranch
         self.guide_mode = guide_mode
+        self.strip_punct = strip_punct
+        self.trivial = trivial
+        self.max_length = max_length
 
     def should_run(self, corpus_gt, corpus_pred, corpus_guide, key):
         gt, pred, skip = None, None, False
@@ -199,6 +372,31 @@ class ParseComparison(object):
     def preprocess(self, gt, pred):
         skip = False
 
+        if len(gt.tokens) > 2 and not skip:
+            if self.strip_punct:
+                gt.parse, gt.binary_parse_spans, gt.binary_parse_tree = classic_gt(gt)
+
+        if len(get_tokens(gt.binary_parse_tree)) == 1:
+            self.stats['skipped-1'] += 1
+            skip = True
+
+        if self.trivial:
+            if len(get_tokens(gt.binary_parse_tree)) == 2:
+                self.stats['skipped-2'] += 1
+                skip = True
+
+        if self.max_length is not None:
+            if len(get_tokens(gt.binary_parse_tree)) > self.max_length:
+                skip = True
+            # if len(get_tokens(gt.binary_parse_tree)) == self.max_length + 1:
+            #     print(get_tokens(gt.binary_parse_tree))
+
+        if not skip:
+            if self.rbranch:
+                pred.binary_parse_spans, pred.binary_parse_tree = rb_baseline(get_tokens(gt.binary_parse_tree))
+            elif self.strip_punct:
+                pred.binary_parse_spans, pred.binary_parse_tree = classic(pred)
+
         if self.postprocess:
             pred.binary_parse_spans, pred.binary_parse_tree = heuristic(pred)
 
@@ -220,6 +418,16 @@ class ParseComparison(object):
             if skip:
                 continue
 
+            gt.f1_spans = tuples_to_spans(gt.parse)[0]
+            pred.f1_spans = pred.binary_parse_spans
+            if self.trivial:
+                gt.f1_spans = remove_trivial_spans(gt.f1_spans)
+                pred.f1_spans = remove_trivial_spans(pred.f1_spans)
+
+            if len(gt.f1_spans) == 0:
+                self.stats['skip-empty-parse'] += 1
+                continue
+
             for judge in self.comparisons:
                 judge.compare(gt, pred)
 
@@ -231,12 +439,18 @@ class ParseComparison(object):
                     continue
                 gt = corpus_gt[key]
                 pred = gt
+                skip = False
                 if len(gt.tokens) > 2:
                     self.stats['skipped-len'] += 1
                     # print(gt.example_id, len(gt.tokens))
                     continue
                 for judge in self.comparisons:
+                    if len(get_tokens(gt.binary_parse_tree)) <= 2 and hasattr(judge, 'trivial') and judge.trivial:
+                        skip = True
+                        break
                     judge.compare(gt, pred)
+                if skip:
+                    continue
                 self.stats['count'] += 1
                 self.stats['missing'] += 1
 
@@ -265,6 +479,11 @@ if __name__ == '__main__':
     parser.add_argument('--guide_type', default='pred', choices=('gt', 'pred'))
     parser.add_argument('--guide_mode', default='constrain', choices=('constrain', 'skip'))
     parser.add_argument('--postprocess', action='store_true')
+    parser.add_argument('--rbranch', action='store_true')
+    parser.add_argument('--skip_missing', action='store_true')
+    parser.add_argument('--trivial', action='store_true')
+    parser.add_argument('--strip_punct', action='store_true')
+    parser.add_argument('--max_length', default=None, type=int)
     parser.add_argument('--data_type', default='ptb', choices=('ptb', 'nli'))
     parser.add_argument('--verbose', action='store_true')
     options = parser.parse_args()
@@ -273,10 +492,11 @@ if __name__ == '__main__':
 
     class DeserializeGT(ParseTreeDeserializeGroundTruth):
         def get_parse(self):
-            return None
+            parse = super(DeserializeGT, self).get_parse()
+            return parse_to_tuples(parse)
 
-        def get_binary_parse_tree(self):
-            return None
+        # def get_binary_parse_tree(self):
+        #     return None
 
 
     class DeserializePred(ParseTreeDeserializeInfer):
@@ -289,11 +509,11 @@ if __name__ == '__main__':
             else:
                 return super(DeserializePred, self).get_raw_binary_parse()
 
-        def get_binary_parse_tree(self):
-            if options.postprocess:
-                return super(DeserializePred, self).get_binary_parse_tree()
-            else:
-                return None
+        # def get_binary_parse_tree(self):
+        #     if options.postprocess:
+        #         return super(DeserializePred, self).get_binary_parse_tree()
+        #     else:
+        #         return None
 
         def get_tokens(self):
             return None
@@ -357,15 +577,19 @@ if __name__ == '__main__':
         corpus_guide = {x.example_id: x for x in results}
 
     # Comparisons.
-    judge_compare_f1 = CompareF1(verbose=options.verbose)
+    judge_compare_f1 = CompareF1(verbose=options.verbose, trivial=options.trivial)
     judge_average_depth = AverageDepth()
     comparisons = [judge_compare_f1, judge_average_depth]
 
     # Corpus Stats
     ParseComparison(
         comparisons=comparisons,
-        count_missing=True,
+        count_missing=not options.skip_missing,
         postprocess=options.postprocess,
+        rbranch=options.rbranch,
+        strip_punct=options.strip_punct,
+        max_length=options.max_length,
+        trivial=options.trivial,
         guide_mode=options.guide_mode,
         ).run(corpus_gt, corpus_pred, corpus_guide)
     print('Count (Ground Truth): {}'.format(len(corpus_gt)))
