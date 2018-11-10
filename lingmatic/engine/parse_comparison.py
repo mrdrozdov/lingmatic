@@ -460,12 +460,12 @@ class ParseComparison(object):
             gt.parse = remove_using_mask(gt.parse, mask)
             gt.binary_parse_tree = remove_using_mask(gt.binary_parse_tree, mask)
             gt.binary_parse_spans = set(get_spans(gt.binary_parse_tree))
-            gt.parse_spans = set(get_spans(gt.parse))
 
             # pred
             # TODO: Can skip some of this if the example is being skipped anyway.
             pred.binary_parse_tree = remove_using_mask(pred.binary_parse_tree, mask)
             pred.binary_parse_spans = set(get_spans(pred.binary_parse_tree))
+        gt.parse_spans = set(get_spans(gt.parse))
 
         length = len(get_tokens(gt.binary_parse_tree))
 
@@ -474,14 +474,18 @@ class ParseComparison(object):
                 self.stats['skipped-long'] += 1
                 skip = True
 
-        if self.trivial:
+        if not skip and self.trivial:
             if length <= 2:
                 self.stats['skipped-short'] += 1
                 skip = True
-            else:
-                gt.parse_spans = remove_trivial_spans(gt.parse_spans, length)
-                gt.binary_parse_spans = remove_trivial_spans(gt.binary_parse_spans, length)
-                pred.binary_parse_spans = remove_trivial_spans(pred.binary_parse_spans, length)
+
+        if not skip and self.rbranch:
+            pred.binary_parse_spans, pred.binary_parse_tree = rb_baseline(get_tokens(gt.binary_parse_tree))
+
+        if not skip and self.trivial:
+            gt.parse_spans = remove_trivial_spans(gt.parse_spans, length)
+            gt.binary_parse_spans = remove_trivial_spans(gt.binary_parse_spans, length)
+            pred.binary_parse_spans = remove_trivial_spans(pred.binary_parse_spans, length)
 
         # if len(gt.tokens) > 2 and not skip:
         #     if self.strip_punct:
@@ -508,8 +512,8 @@ class ParseComparison(object):
         #     elif self.strip_punct:
         #         pred.binary_parse_spans, pred.binary_parse_tree = classic(pred)
 
-        # if self.postprocess:
-        #     pred.binary_parse_spans, pred.binary_parse_tree = heuristic(pred)
+        if self.postprocess:
+            pred.binary_parse_spans, pred.binary_parse_tree = heuristic(pred)
 
         return gt, pred, skip
 
