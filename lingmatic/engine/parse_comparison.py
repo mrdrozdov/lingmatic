@@ -499,6 +499,59 @@ class ParseComparison(object):
         print(' '.join(['{}={}'.format(k, v) for k, v in self.stats.items()]))
 
 
+def tokeep_punct_using_labels(pt):
+    if isinstance(pt, str):
+        return pt
+    if pt.label() in punctuation_tags or pt.label() in ('$',):
+        return None
+
+    node = []
+    for subtree in pt:
+        x = tokeep_punct_using_labels(subtree)
+        if isinstance(x, bool):
+            node.append(x)
+        elif isinstance(x, list):
+            node += x
+        elif isinstance(x, str):
+            node.append(True)
+        else:
+            node.append(False)
+
+    if len(node) == 1:
+        node = node[0]
+
+    return node
+
+
+def remove_using_mask(pt, mask):
+    def func(pt, mask, pos=0):
+        if isinstance(pt, str):
+            if mask[pos]:
+                return pt, 1
+            return None, 1
+
+        node = []
+        sofar = pos
+        for subtree in pt:
+            x, size = func(subtree, mask, pos=sofar)
+            if x is not None and (isinstance(x, str) or len(x) > 0):
+                node.append(x)
+            sofar += size
+
+        node = tuple(node)
+
+        if len(node) == 1:
+            node = node[0]
+
+        size = sofar - pos
+
+        return node, size
+
+    node = func(pt, mask)[0]
+
+    return node
+
+
 def remove_punct_using_labels(pt):
     if isinstance(pt, str):
         return pt
@@ -506,7 +559,7 @@ def remove_punct_using_labels(pt):
         return None
 
     node = (remove_punct_using_labels(subtree) for subtree in pt)
-    node = tuple(x for x in node if x is not None and len(x) > 0)
+    node = tuple(x for x in node if x is not None and (isinstance(x, str) or len(x) > 0))
 
     if len(node) == 1:
         node = node[0]
@@ -533,15 +586,26 @@ def run_summary(corpus_gt, max_length=None):
     print('nexamples', len(corpus_gt))
     print('max_length', max_length)
 
-    # for i, key in tqdm(enumerate(corpus_gt.keys())):
     for i, key in enumerate(corpus_gt.keys()):
         gt = corpus_gt[key]
+
+        length_init = len(gt.parse.leaves())
+
         clean = remove_punct_using_labels(gt.parse)
         length = tree_length(clean)
 
-        # print(length, clean)
-        # sent = [w for w, pos in gt.parse.pos() if pos not in punctuation_tags]
-        # import ipdb; ipdb.set_trace()
+        # if length < length_init:
+        #     mask = tokeep_punct_using_labels(gt.parse)
+        #     masked_parse = remove_using_mask(gt.parse, mask)
+        #     masked_bparse = remove_using_mask(gt.binary_parse_tree, mask)
+
+        #     print(length, length_init)
+        #     print(mask)
+        #     print(gt.parse.leaves())
+        #     print(clean)
+        #     print(masked_parse)
+        #     print(masked_bparse)
+        #     print()
 
         if length <= max_length:
             count += 1
