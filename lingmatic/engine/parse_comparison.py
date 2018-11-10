@@ -17,8 +17,38 @@ python lingmatic/engine/parse_comparison.py --data_type ptb --trivial --strip_pu
 --trivial
 --data ptb-test
 
+WSJ10 Descriptions
+
+http://www.aclweb.org/anthology/P02-1017
+
+We performed most experiments on the 7422 sentences
+in the Penn treebank Wall Street Journal section
+which contained no more than 10 words after
+the removal of punctuation and null elements
+(WSJ-10). Evaluation was done by measuring unlabeled
+precision, recall, and their harmonic mean
+F1 against the treebank parses. Constituents which
+could not be gotten wrong (single words and entire
+sentences) were discarded. The basic experiments,
+as described above, do not label constituents.
+An advantage to having only a single constituent
+class is that it encourages constituents of one type to
+be found even when they occur in a context which
+canonically holds another type. For example, NPs
+and PPs both occur between a verb and the end of
+the sentence, and they can transfer constituency to
+each other through that context.
+
+- All POS Tags: {'POS', 'JJR', 'RBS', 'PRP', 'PDT', 'CC', 'RP', 'NNP', 'DT',
+    'RB', 'WP', 'WP$', 'VBD', '#', '-LRB-', 'NNPS', ',', 'JJS', 'WDT',
+    'JJ', 'VBP', '$', 'EX', 'TO', 'LS', 'VB', ':', 'MD', '-RRB-', 'RBR',
+    "''", 'FW', 'UH', 'VBZ', 'NNS', 'NN', 'VBG', 'CD', 'VBN', 'PRP$', '.', 'IN', 'WRB', 'SYM', '``'}
+
+- punctuation_tags = ['.', ',', ':', '-LRB-', '-RRB-', "''", '``']
+
 """
 
+import sys
 import os
 import json
 from nltk.tree import Tree
@@ -28,6 +58,7 @@ from collections import OrderedDict
 import numpy as np
 
 
+punctuation_tags = ['.', ',', ':', '-LRB-', '-RRB-', "''", '``']
 punctuation_words = set(['.', ',', ':', '-LRB-', '-RRB-', '\'\'', '``', '--', ';', '-', '?', '!', '...', '-LCB-', '-RCB-'])
 currency_words = set(['#', '$', 'C$', 'A$'])
 ellipsis = set(['*', '*?*', '0', '*T*', '*ICH*', '*U*', '*RNR*', '*EXP*', '*PPA*', '*NOT*'])
@@ -318,8 +349,9 @@ def rb_baseline(tokens):
 def classic_gt(pt):
     tr = remove_all_punct(pt.binary_parse_tree)
     spans = set(get_spans(tr))
-    parse = remove_all_punct_parse(pt.parse)
-    return parse, spans, tr
+    tuples = parse_to_tuples(pt.parse)
+    parse_tree = remove_all_punct_parse(tuples)
+    return parse_tree, spans, tr
 
 
 def classic(pt):
@@ -467,6 +499,56 @@ class ParseComparison(object):
         print(' '.join(['{}={}'.format(k, v) for k, v in self.stats.items()]))
 
 
+def remove_punct_using_labels(pt):
+    if isinstance(pt, str):
+        return pt
+    if pt.label() in punctuation_tags or pt.label() in ('$',):
+        return None
+
+    node = (remove_punct_using_labels(subtree) for subtree in pt)
+    node = tuple(x for x in node if x is not None)
+
+    if len(node) == 1:
+        node = node[0]
+
+    return node
+
+
+def tree_length(pt):
+    if not isinstance(pt, (list, tuple)):
+        return 1
+    size = sum(tree_length(subtree) for subtree in pt)
+    return size
+
+
+def run_summary(corpus_gt, max_length=None):
+    from tqdm import tqdm
+
+    if max_length is None:
+        max_length = 10
+
+    pos_set = set()
+    count = 0
+
+    print('nexamples', len(corpus_gt))
+    print('max_length', max_length)
+
+    # for i, key in tqdm(enumerate(corpus_gt.keys())):
+    for i, key in enumerate(corpus_gt.keys()):
+        gt = corpus_gt[key]
+        clean = remove_punct_using_labels(gt.parse)
+        length = tree_length(clean)
+
+        # print(length, clean)
+        # sent = [w for w, pos in gt.parse.pos() if pos not in punctuation_tags]
+        # import ipdb; ipdb.set_trace()
+
+        if length <= max_length:
+            count += 1
+
+    print('count', count)
+
+
 if __name__ == '__main__':
     import argparse
 
@@ -476,6 +558,7 @@ if __name__ == '__main__':
 
 
     parser = argparse.ArgumentParser()
+    parser.add_argument('--mode', default='eval', choices=('eval', 'summary'))
     parser.add_argument('--limit', default=None, type=int)
     parser.add_argument('--gt', default=os.path.expanduser('~/Downloads/ptb.jsonl'), type=str)
     parser.add_argument('--pred', default=os.path.expanduser('~/Downloads/PRPN_parses/PRPNLM_ALLNLI/parsed_WSJ_PRPNLM_AllLI_ESLM.jsonl'), type=str)
@@ -497,7 +580,7 @@ if __name__ == '__main__':
     class DeserializeGT(ParseTreeDeserializeGroundTruth):
         def get_parse(self):
             parse = super(DeserializeGT, self).get_parse()
-            return parse_to_tuples(parse)
+            return parse
 
         # def get_binary_parse_tree(self):
         #     return None
@@ -585,16 +668,21 @@ if __name__ == '__main__':
     judge_average_depth = AverageDepth()
     comparisons = [judge_compare_f1, judge_average_depth]
 
-    # Corpus Stats
-    ParseComparison(
-        comparisons=comparisons,
-        count_missing=not options.skip_missing,
-        postprocess=options.postprocess,
-        rbranch=options.rbranch,
-        strip_punct=options.strip_punct,
-        max_length=options.max_length,
-        trivial=options.trivial,
-        guide_mode=options.guide_mode,
-        ).run(corpus_gt, corpus_pred, corpus_guide)
-    print('Count (Ground Truth): {}'.format(len(corpus_gt)))
-    print('Count (Predictions): {}'.format(len(corpus_pred)))
+    if options.mode == 'summary':
+        run_summary(corpus_gt, max_length=options.max_length)
+        sys.exit()
+        pass
+    else:
+        # Corpus Stats
+        ParseComparison(
+            comparisons=comparisons,
+            count_missing=not options.skip_missing,
+            postprocess=options.postprocess,
+            rbranch=options.rbranch,
+            strip_punct=options.strip_punct,
+            max_length=options.max_length,
+            trivial=options.trivial,
+            guide_mode=options.guide_mode,
+            ).run(corpus_gt, corpus_pred, corpus_guide)
+        print('Count (Ground Truth): {}'.format(len(corpus_gt)))
+        print('Count (Predictions): {}'.format(len(corpus_pred)))
