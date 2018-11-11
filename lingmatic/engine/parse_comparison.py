@@ -93,8 +93,16 @@ def average_depth(parse):
 
 
 def example_f1(c1, c2):
-    prec = float(len(c1.intersection(c2))) / len(c2)  # TODO: More efficient.
-    return prec  # For strictly binary trees, P = R = F1
+    correct = len(c1.intersection(c2))
+    if correct == 0:
+        return 0.
+    gt_total = len(c2)
+    pred_total = len(c1)
+    prec = float(correct) / gt_total
+    recall = float(correct) / pred_total
+    return 2 * (prec * recall) / (prec + recall)
+    # prec = float(len(c1.intersection(c2))) / len(c2)  # TODO: More efficient.
+    # return prec  # For strictly binary trees, P = R = F1
 
 
 class AverageDepth(object):
@@ -411,8 +419,11 @@ class ParseComparison(object):
         self.stats['skipped-len'] = 0
         self.stats['skipped-guide'] = 0
         self.stats['skipped-short'] = 0
+        self.stats['skipped-short-token'] = 0
         self.stats['skipped-long'] = 0
+        self.stats['skipped-long-tokens'] = 0
         self.stats['skip-empty-parse'] = 0
+        self.stats['count-preprocess'] = 0
         self.comparisons = comparisons
         self.count_missing = count_missing
         self.postprocess = postprocess
@@ -451,12 +462,14 @@ class ParseComparison(object):
         use_parse = True
 
         if self.trivial and len(gt.tokens) <= 2:
+            self.stats['skipped-short-token'] += 1
             return gt, pred, True
 
         if self.strip_punct:
             mask = tokeep_punct_using_labels(gt.parse)
 
             # gt
+            gt._parse = gt.parse
             gt.parse = remove_using_mask(gt.parse, mask)
             gt.binary_parse_tree = remove_using_mask(gt.binary_parse_tree, mask)
             gt.binary_parse_spans = set(get_spans(gt.binary_parse_tree))
@@ -478,6 +491,9 @@ class ParseComparison(object):
             if length <= 2:
                 self.stats['skipped-short'] += 1
                 skip = True
+
+        if not skip:
+            self.stats['count-preprocess'] += 1
 
         if not skip and self.rbranch:
             pred.binary_parse_spans, pred.binary_parse_tree = rb_baseline(get_tokens(gt.binary_parse_tree))
@@ -512,7 +528,7 @@ class ParseComparison(object):
         #     elif self.strip_punct:
         #         pred.binary_parse_spans, pred.binary_parse_tree = classic(pred)
 
-        if self.postprocess:
+        if not skip and self.postprocess:
             pred.binary_parse_spans, pred.binary_parse_tree = heuristic(pred)
 
         return gt, pred, skip
