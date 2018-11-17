@@ -144,7 +144,7 @@ def remove_trivial_spans(spans, length):
 class CompareF1(object):
     name = 'f1'
 
-    def __init__(self, verbose=False, trivial=False, use_parse=True):
+    def __init__(self, verbose=0, trivial=False, use_parse=True):
         self.score = 0
         self.use_parse = use_parse
         self.verbose = verbose
@@ -163,25 +163,38 @@ class CompareF1(object):
         f1 = example_f1(pred_spans, gt_spans)
         self.score += f1
 
-        if self.verbose:
-            if f1 < 1:
-                out = OrderedDict()
-                out['example_id'] = gt.example_id
-                out['length'] = len(gt.tokens)
-                out['f1'] = f1
-                self.results.append(out)
-                # print(json.dumps(out))
+        if self.verbose > 0:
+            out = OrderedDict()
+            out['example_id'] = gt.example_id
+            out['length'] = len(gt.tokens)
+            out['f1'] = f1
+            self.results.append(out)
+            # print(json.dumps(out))
 
     def finish(self, count):
         self.score /= count
 
-        if self.verbose:
-            lengths = {x['length'] for x in self.results}
-            for k in sorted(lengths):
-                f1s = [x['f1'] for x in self.results if x['length'] == k]
-                n = len(f1s)
-                mean_f1 = np.array(f1s).mean()
-                print('{},{:.3f},{}'.format(k, mean_f1, n))
+        if self.verbose > 0:
+            if self.verbose == 1:
+                lengths = {x['length'] for x in self.results}
+                for k in sorted(lengths):
+                    f1s = [x['f1'] for x in self.results if x['length'] == k]
+                    n = len(f1s)
+                    mean_f1 = np.array(f1s).mean()
+                    print('{},{:.3f},{}'.format(k, mean_f1, n))
+            if self.verbose == 2:
+                lengths = {x['length'] for x in self.results}
+                for k in sorted(lengths):
+                    f1s = [x['f1'] for x in self.results if x['length'] == k]
+                    for f1 in f1s:
+                        print('{},{:.3f}'.format(k, f1))
+            if self.verbose == 3:
+                lengths = {x['length'] for x in self.results}
+                for k in sorted(lengths):
+                    f1s = [x['f1'] for x in self.results if x['length'] == k]
+                    elst = [x['example_id'] for x in self.results if x['length'] == k]
+                    for f1, e in zip(f1s, elst):
+                        print('{},{:.3f},{}'.format(k, f1, e))
 
     def print(self):
         return '{} {:.3f}'.format(self.name, self.score)
@@ -739,7 +752,7 @@ if __name__ == '__main__':
     parser.add_argument('--strip_punct', action='store_true')
     parser.add_argument('--max_length', default=None, type=int)
     parser.add_argument('--data_type', default='ptb', choices=('ptb', 'nli'))
-    parser.add_argument('--verbose', action='store_true')
+    parser.add_argument('--verbose', default=0, choices=(0, 1, 2, 3), type=int)
     options = parser.parse_args()
 
     print(json.dumps(options.__dict__, sort_keys=True, indent=4))
