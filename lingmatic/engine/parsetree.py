@@ -177,6 +177,12 @@ class ParseTree(object):
             pt.raw_binary_parse = obj_reader.get_raw_binary_parse()
             pt.tokens = obj_reader.get_tokens()
 
+            if hasattr(obj_reader, 'topk') and obj_reader.topk:
+                pt.kth = obj_reader.get_kth()
+                pt.score = obj_reader.get_score()
+                pt.fixed_score = obj_reader.get_fixed_score()
+                pt.fixed_loss = obj_reader.get_fixed_loss()
+
             pts.append(pt)
 
         return pts

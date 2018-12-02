@@ -1,3 +1,11 @@
+"""
+
+python lingmatic/engine/type_matcher.py --skip_one --postprocess \
+--gt ~/Downloads/ptb.jsonl \
+--pred ~/Research/diora/diora_dynet/analysis_elmo-01-400D-lr_002-l_20-parse-all-s_100000.ptb
+
+"""
+
 import os
 import json
 

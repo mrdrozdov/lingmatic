@@ -6,10 +6,35 @@ WSJ10 (7422 sentences)
 --trivial
 --data ptb
 
+# 68.8, 4.0
+python lingmatic/engine/parse_comparison.py --data_type ptb --trivial --strip_punct --max_length 10 \
+--gt ~/Downloads/ptb.jsonl \
+--pred /Users/adrozdov/Research/diora/diora_dynet/analysis_elmo-01-400D-lr_002-l_20-parse-all-s_100000.ptb
+
+# 61.7, 4.0
+python lingmatic/engine/parse_comparison.py --data_type ptb --trivial --strip_punct --max_length 10 \
+--gt ~/Downloads/ptb.jsonl \
+--pred ~/Downloads/PRPN_parses/PRPNLM_ALLNLI/parsed_WSJ_PRPNLM_AllLI_ESLM.jsonl
+
 WSJ40
 
+# 52.4,6.0
 python lingmatic/engine/parse_comparison.py --data_type ptb --trivial --strip_punct --max_length 40 \
---gt ~/Downloads/ptb.jsonl \
+--gt ~/Downloads/ptb-test.jsonl \
+--pred ~/Downloads/PRPN_parses/PRPNUP_ALLNLI/parsed_WSJ_PRPNUP_ALLNLI_ESLM.jsonl
+
+# 59.4
+python lingmatic/engine/parse_comparison.py --data_type ptb --trivial --strip_punct --max_length 40 \
+--gt ~/Downloads/ptb-test.jsonl \
+--pred /Users/adrozdov/Research/diora/diora_dynet/analysis_elmo-01-400D-lr_002-l_20-parse-all-s_100000.ptb
+
+# 58.9
+python lingmatic/engine/parse_comparison.py --data_type ptb --trivial --strip_punct --max_length 40 \
+--gt ~/Downloads/ptb-test.jsonl \
+--pred /Users/adrozdov/Research/diora/diora_dynet/analysis_elmo-01-400D-lr_002-l_20-parse-all-s_200000.ptb
+
+python lingmatic/engine/parse_comparison.py --data_type ptb --trivial --strip_punct --max_length 40 \
+--gt ~/Downloads/ptb-test.jsonl \
 --pred /Users/adrozdov/Research/diora/diora_dynet/analysis_fast-400D-lr_002-l_20-model.step-ptb-eval-step_300000.ptb
 
 --max_length 40
@@ -557,7 +582,11 @@ class ParseComparison(object):
             if skip:
                 continue
 
+            prev = self.stats['count-preprocess']
             gt, pred, skip = self.preprocess(gt, pred)
+            counted = (self.stats['count-preprocess'] - prev) == 1
+
+            assert counted != skip
 
             if skip:
                 continue
@@ -575,6 +604,8 @@ class ParseComparison(object):
             for judge in self.comparisons:
                 if judge.skip(gt, pred):
                     skip = True
+
+            assert counted != skip
 
             if skip:
                 continue
@@ -635,6 +666,9 @@ def tokeep_punct_using_labels(pt):
     if len(node) == 1:
         node = node[0]
 
+    if isinstance(node, bool):
+        node = [node]
+
     return node
 
 
@@ -662,7 +696,10 @@ def remove_using_mask(pt, mask):
 
         return node, size
 
-    node = func(pt, mask)[0]
+    try:
+        node = func(pt, mask)[0]
+    except:
+        import ipdb; ipdb.set_trace()
 
     return node
 
